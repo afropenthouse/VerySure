@@ -98,6 +98,14 @@ npx tsx --env-file=.env.render scripts/create-admin.ts
 3. Remove temporary ADMIN_* values afterward. Sign in as admin and provision
    NAFDAC/SON accounts through the app. Share account credentials privately.
 
+If the owner has already registered as a consumer/retailer and there are no
+administrators, an operator can explicitly select that account using
+`ADMIN_EMAIL` and run `npx tsx --env-file=.env.render scripts/bootstrap-admin.ts
+--promote-existing` on one line. This changes only its role, preserves the
+password and wallet, revokes existing sessions, and records an audit entry.
+It refuses to grant an additional administrator once another admin exists.
+This capability is not available through any public API route.
+
 A manufacturer registers, a regulator/admin approves it and issues a batch
 number, then the manufacturer registers products and creates batch/unit codes.
 Consumers and retailers verify those codes. Unregistered supermarket barcodes

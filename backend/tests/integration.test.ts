@@ -15,6 +15,7 @@ const { buildApp } = await import("../src/app.js");
 const { seedDatabase } = await import("../prisma/seed.js");
 const { hashPassword, checkPassword } = await import("../src/security.js");
 const { config } = await import("../src/config.js");
+const { bootstrapAdmin } = await import("../scripts/bootstrap-admin.js");
 const app = await buildApp({ logger: false });
 const tokens: Record<string, string> = {};
 const accounts = [
@@ -993,4 +994,41 @@ test("bulk batches create 5000 unique codes, paginate privately and roll back du
   assert.equal(collision.statusCode, 409);
   assert.equal(await db.batch.count(), batchCount);
   assert.equal(await db.productCode.count(), codeCount);
+});
+
+test("first-admin bootstrap requires explicit promotion and preserves registered account data", async () => {
+  const email = "workflow-consumer@example.com";
+  const before = await db.user.findUniqueOrThrow({
+    where: { email },
+    include: { wallet: true },
+  });
+  const sessions = await db.session.count({ where: { userId: before.id } });
+  assert.ok(sessions > 0);
+  await assert.rejects(bootstrapAdmin(email, false), /Explicit/);
+  await assert.rejects(
+    bootstrapAdmin(email, true),
+    /administrator already exists/,
+  );
+  assert.equal(
+    (await db.user.findUniqueOrThrow({ where: { email } })).role,
+    "consumer",
+  );
+  // Change only disposable fixtures in the guarded local test database.
+  await db.user.update({ where: { id: "104290" }, data: { role: "consumer" } });
+  await bootstrapAdmin(email, true);
+  const after = await db.user.findUniqueOrThrow({
+    where: { email },
+    include: { wallet: true },
+  });
+  assert.equal(after.role, "admin");
+  assert.equal(after.passwordHash, before.passwordHash);
+  assert.deepEqual(after.wallet, before.wallet);
+  assert.equal(await db.session.count({ where: { userId: before.id } }), 0);
+  await bootstrapAdmin(email, true);
+  assert.equal(
+    await db.auditLog.count({
+      where: { targetId: before.id, action: "bootstrap.first-admin" },
+    }),
+    1,
+  );
 });
