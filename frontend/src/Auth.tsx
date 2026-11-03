@@ -314,20 +314,6 @@ export function Auth() {
                   New to Verysure? Create an account
                 </Text>
               </Pressable>
-              {demoOtp && (
-                <View style={S.card}>
-                  <Text style={S.h3}>Development test accounts</Text>
-                  <Text style={S.small}>
-                    consumer@verysure.ng · retailer@verysure.ng{"\n"}
-                    manufacturer@verysure.ng · foods@verysure.ng{"\n"}
-                    monitor@verysure.ng · son@verysure.ng{"\n"}admin@verysure.ng
-                  </Text>
-                  <Text style={S.small}>
-                    Use SEED_PASSWORD from backend/.env. Every role requires its
-                    own authenticated session.
-                  </Text>
-                </View>
-              )}
             </>
           )}
           {!!error && (
