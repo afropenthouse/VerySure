@@ -13,6 +13,10 @@ export default (): ExpoConfig => {
   return {
     name: "Verysure",
     slug: "verysure-mobile",
+    owner: "afropethouse",
+    extra: {
+      eas: { projectId: "7ee0b660-24c2-4c1e-94e8-4cfb761b420c" },
+    },
     scheme: "verysure",
     version: "1.0.0",
     orientation: "portrait",
