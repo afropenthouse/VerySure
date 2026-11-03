@@ -7,7 +7,7 @@ import { Badge, Button, C, Field, Icon, S } from "./theme";
 import { bestEffortLocation } from "./device";
 import { NetworkError } from "./api";
 export function Scanner({ onResult }: { onResult: (v: Verification) => void }) {
-  const { state, user, request, demoOtp } = useStore();
+  const { state, user, request } = useStore();
   const [permission, requestPermission] = useCameraPermissions();
   const [camera, setCamera] = useState(false);
   const [code, setCode] = useState("");
@@ -204,30 +204,6 @@ export function Scanner({ onResult }: { onResult: (v: Verification) => void }) {
           Then ₦10 per verification. You’ll always see the charge.
         </Text>
       </View>
-      {demoOtp && (
-        <View style={{ gap: 10 }}>
-          <Text style={S.small}>SAMPLE CODES (REQUIRE SAMPLE DATA)</Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {[
-              { label: "Genuine", code: "VS-EMZR-2026-0001" },
-              { label: "Recalled", code: "VS-RECALL-0001" },
-              { label: "Unknown", code: "VS-NOT-REGISTERED" },
-            ].map((c) => (
-              <Pressable
-                key={c.label}
-                onPress={() => setCode(c.code)}
-                style={S.pill}
-              >
-                <Text style={S.small}>{c.label} ↗</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Text style={S.small}>
-            These codes work only when sample products have been added to this
-            server.
-          </Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -240,7 +216,7 @@ export function Result({
   onAgain: () => void;
   onReport: () => void;
 }) {
-  const { state, demoOtp } = useStore();
+  const { state } = useStore();
   const product =
     v.details?.product ?? state.products.find((p) => p.id === v.productId);
   const batch =
@@ -278,9 +254,7 @@ export function Result({
               : "We can’t confirm this."}
         </Text>
         <Text style={[S.text, { textAlign: "center" }]}>{v.reason}</Text>
-        <Text style={S.small}>
-          {demoOtp ? "DEVELOPMENT DATABASE RESULT" : "VERYSURE DATABASE RESULT"}
-        </Text>
+        <Text style={S.small}>VERYSURE DATABASE RESULT</Text>
       </View>
       <View style={S.card}>
         <Text style={S.h2}>{product?.name || "Unregistered product"}</Text>

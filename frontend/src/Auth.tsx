@@ -3,9 +3,9 @@ import { View, Text, ScrollView, Pressable } from "react-native";
 import { useStore } from "./store";
 import { api } from "./api";
 import { Role, roles } from "./domain";
-import { Badge, Brand, Button, C, Field, Icon, S } from "./theme";
+import { Brand, Button, C, Field, Icon, S } from "./theme";
 export function Auth() {
-  const { login, register, demoOtp, busy, storageError } = useStore();
+  const { login, register, busy, storageError } = useStore();
   const [step, setStep] = useState<
     "welcome" | "role" | "register" | "otp" | "login"
   >("welcome");
@@ -76,7 +76,6 @@ export function Auth() {
     >
       <View style={[S.between, { marginTop: 12 }]}>
         <Brand />
-        {demoOtp && <Badge text="DEV PROVIDERS" />}
       </View>
       {!!storageError && (
         <Text style={[S.text, { color: C.red }]}>{storageError}</Text>
@@ -140,13 +139,6 @@ export function Auth() {
               </Text>
             </View>
           </View>
-          {demoOtp && (
-            <Text style={S.small}>
-              Development OTP and payment providers are enabled. Accounts and
-              product data are stored on the server. Sample product records are
-              for testing.
-            </Text>
-          )}
         </>
       ) : (
         <>
@@ -268,13 +260,14 @@ export function Auth() {
             <>
               {challenge?.demoCode && (
                 <View style={S.card}>
-                  <Text style={S.small}>DEVELOPMENT OTP · FIVE MINUTES</Text>
+                  <Text style={S.small}>
+                    TEST VERIFICATION CODE · FIVE MINUTES
+                  </Text>
                   <Text style={[S.h1, { letterSpacing: 8 }]}>
                     {challenge.demoCode}
                   </Text>
                   <Text style={S.text}>
-                    The demo provider returns this code. Production delivery is
-                    configured on the backend.
+                    For this test, enter the code shown above.
                   </Text>
                 </View>
               )}

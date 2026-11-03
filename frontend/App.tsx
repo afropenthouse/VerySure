@@ -335,8 +335,7 @@ function Home({
 }
 
 function Shell() {
-  const { ready, user, storageError, state, logout, demoPayments, refresh } =
-    useStore();
+  const { ready, user, storageError, state, logout, refresh } = useStore();
   const [screen, setScreen] = useState<Screen>("Home");
   const [result, setResult] = useState<Verification>();
   const [reportPrefill, setReportPrefill] = useState<Verification>();
@@ -463,24 +462,6 @@ function Shell() {
             )}
           </Pressable>
         </View>
-      </View>
-      <View
-        style={{
-          backgroundColor: "#F1E8DA",
-          paddingHorizontal: 24,
-          paddingVertical: 6,
-        }}
-      >
-        <Text
-          style={[
-            S.small,
-            { fontSize: 9, textAlign: "center", color: "#836B50" },
-          ]}
-        >
-          {demoPayments
-            ? "DEVELOPMENT PAYMENTS · No real money moves"
-            : "CONNECTED TO VERYSURE"}
-        </Text>
       </View>
       {!!storageError && (
         <Text style={[S.small, { color: C.red, padding: 10 }]}>
