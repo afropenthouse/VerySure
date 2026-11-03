@@ -1,0 +1,23 @@
+{
+  "name": "verysure",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "start": "npm start --workspace frontend",
+    "android": "npm run android --workspace frontend",
+    "ios": "npm run ios --workspace frontend",
+    "web": "npm run web --workspace frontend",
+    "dev:backend": "npm run dev --workspace backend",
+    "build:backend": "npm run build --workspace backend",
+    "db:generate": "npm run db:generate --workspace backend",
+    "db:migrate": "npm run db:migrate --workspace backend",
+    "db:seed": "npm run db:seed --workspace backend",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm test --workspaces",
+    "build:web": "npm run build:web --workspace frontend"
+  }
+}

@@ -1,0 +1,302 @@
+generator client {
+  provider = "prisma-client"
+  output = "../src/generated/prisma"
+  moduleFormat = "esm"
+  importFileExtension = "js"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum Role {
+  consumer
+  retailer
+  manufacturer
+  monitor
+  admin
+}
+enum AccountStatus {
+  active
+  suspended
+}
+enum ManufacturerStatus {
+  pending
+  approved
+  rejected
+}
+enum BatchStatus {
+  active
+  recalled
+}
+enum Verdict {
+  GENUINE
+  FAKE
+  UNKNOWN
+}
+enum CodeType {
+  serial
+  barcode
+  seal
+  shape
+}
+enum TransactionType {
+  charge
+  topup
+  transfer_in
+  transfer_out
+  admin_credit
+}
+enum PaymentStatus {
+  pending
+  settled
+  cancelled
+}
+enum ReportStatus {
+  open
+  investigating
+  resolved
+}
+model User {
+  id String @id @db.Char(6)
+  name String
+  email String @unique
+  phone String @unique
+  passwordHash String
+  address String
+  role Role
+  status AccountStatus @default(active)
+  company String?
+  organization String?
+  locationEnabled Boolean @default(false)
+  lastLat Float?
+  lastLng Float?
+  lastSeenAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  wallet Wallet?
+  manufacturer Manufacturer?
+  sessions Session[]
+  verifications Verification[]
+  reports Report[]
+  messages Message[]
+  notifications Notification[]
+  payments Payment[]
+  photos Photo[]
+  transfers Transfer[]
+  auditLogs AuditLog[]
+  @@index([role, status])
+}
+model Session {
+  id String @id @default(uuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+  @@index([expiresAt])
+}
+model OtpChallenge {
+  id String @id @default(uuid())
+  email String
+  codeHash String
+  payload Json
+  attempts Int @default(0)
+  consumed Boolean @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([email, createdAt])
+}
+model Manufacturer {
+  id String @id @db.Char(6)
+  user User @relation(fields: [id], references: [id])
+  name String
+  rc String @unique
+  category String
+  status ManufacturerStatus @default(pending)
+  approval String? @unique
+  reason String?
+  approvedBy String?
+  approvedAt DateTime?
+  products Product[]
+  messages Message[]
+  issuedBatches IssuedBatch[]
+  @@index([status])
+}
+model Product {
+  id String @id @default(uuid())
+  manufacturerId String
+  manufacturer Manufacturer @relation(fields: [manufacturerId], references: [id])
+  name String
+  category String
+  description String
+  unit String
+  regulatory String
+  createdAt DateTime @default(now())
+  batches Batch[]
+  verifications Verification[]
+  @@index([manufacturerId])
+}
+model Batch {
+  id String @id @default(uuid())
+  productId String
+  product Product @relation(fields: [productId], references: [id])
+  number String @unique
+  quantity Int
+  manufactured DateTime @db.Date
+  expires DateTime @db.Date
+  status BatchStatus @default(active)
+  createdAt DateTime @default(now())
+  codes ProductCode[]
+  verifications Verification[]
+  @@index([productId])
+}
+model ProductCode {
+  value String @id
+  batchId String
+  batch Batch @relation(fields: [batchId], references: [id])
+  type CodeType
+  blocked Boolean @default(false)
+  @@index([batchId])
+}
+model Wallet {
+  userId String @id
+  user User @relation(fields: [userId], references: [id])
+  balanceKobo Int @default(0)
+  freeUsed Int @default(0)
+  transactions WalletTransaction[]
+}
+model WalletTransaction {
+  id String @id @default(uuid())
+  userId String
+  wallet Wallet @relation(fields: [userId], references: [userId])
+  type TransactionType
+  amountKobo Int
+  note String
+  reference String
+  createdAt DateTime @default(now())
+  @@unique([reference, userId, type])
+  @@index([userId, createdAt])
+}
+model Transfer {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  recipientId String
+  amountKobo Int
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  @@unique([userId, idempotencyKey])
+}
+model Verification {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  code String
+  verdict Verdict
+  reason String
+  productId String?
+  product Product? @relation(fields: [productId], references: [id])
+  batchId String?
+  batch Batch? @relation(fields: [batchId], references: [id])
+  chargedKobo Int
+  latitude Float?
+  longitude Float?
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([verdict, createdAt])
+}
+model Payment {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  amountKobo Int
+  method String
+  provider String
+  status PaymentStatus @default(pending)
+  externalRef String? @unique
+  checkoutUrl String?
+  idempotencyKey String
+  createdAt DateTime @default(now())
+  settledAt DateTime?
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+model Photo {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  storageKey String @unique
+  createdAt DateTime @default(now())
+  reports Report[]
+}
+model Report {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  product String
+  code String
+  description String
+  photoId String?
+  photo Photo? @relation(fields: [photoId], references: [id])
+  latitude Float?
+  longitude Float?
+  status ReportStatus @default(open)
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+model Message {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  manufacturerId String
+  manufacturer Manufacturer @relation(fields: [manufacturerId], references: [id])
+  subject String
+  body String
+  reply String?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([manufacturerId, createdAt])
+}
+model Notification {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  title String
+  body String
+  read Boolean @default(false)
+  createdAt DateTime @default(now())
+  @@index([userId, read, createdAt])
+}
+model Advert {
+  id String @id @default(uuid())
+  title String
+  body String
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+model IssuedBatch {
+  id String @id @default(uuid())
+  manufacturerId String
+  manufacturer Manufacturer @relation(fields: [manufacturerId], references: [id])
+  number String @unique
+  issuedBy String
+  createdAt DateTime @default(now())
+  @@index([manufacturerId])
+}
+model AuditLog {
+  id String @id @default(uuid())
+  actorId String
+  actor User @relation(fields: [actorId], references: [id])
+  action String
+  targetId String
+  details Json?
+  createdAt DateTime @default(now())
+  @@index([actorId, createdAt])
+}
+model Counter {
+  name String @id
+  value Int
+}

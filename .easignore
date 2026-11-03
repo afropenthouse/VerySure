@@ -1,0 +1,13 @@
+# EAS runs from frontend but uploads the npm workspace repository root.
+node_modules/
+**/node_modules/
+.git/
+**/.expo/
+**/dist/
+**/.env
+**/.env.*
+**/.local/
+**/uploads/
+**/generated/
+**/*.tsbuildinfo
+docs/archive/
