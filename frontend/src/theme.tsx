@@ -169,20 +169,56 @@ export function Button({
     </Pressable>
   );
 }
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+export function Field({
+  label,
+  secureTextEntry = false,
+  ...props
+}: TextInputProps & { label: string }) {
+  const [passwordVisible, setPasswordVisible] = React.useState(false);
   return (
     <View style={{ gap: 7 }}>
       <Text style={[S.small, { color: C.ink }]}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        placeholderTextColor="#A79B93"
-        {...props}
-        style={[
-          S.input,
-          props.multiline && { minHeight: 110, textAlignVertical: "top" },
-          props.style,
-        ]}
-      />
+      <View style={{ position: "relative" }}>
+        <TextInput
+          accessibilityLabel={label}
+          placeholderTextColor="#A79B93"
+          autoCapitalize={secureTextEntry ? "none" : undefined}
+          autoCorrect={secureTextEntry ? false : undefined}
+          {...props}
+          secureTextEntry={secureTextEntry && !passwordVisible}
+          style={[
+            S.input,
+            props.multiline && { minHeight: 110, textAlignVertical: "top" },
+            props.style,
+            secureTextEntry && { paddingRight: 60 },
+          ]}
+        />
+        {secureTextEntry && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              passwordVisible ? "Hide password" : "Show password"
+            }
+            disabled={props.editable === false}
+            onPress={() => setPasswordVisible((visible) => !visible)}
+            style={({ pressed }) => ({
+              position: "absolute",
+              right: 4,
+              top: 0,
+              bottom: 0,
+              width: 48,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            <Icon
+              name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+              color={C.muted}
+            />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
