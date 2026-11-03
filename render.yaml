@@ -1,18 +1,14 @@
-# Test deployment: SMTP OTPs and demo payments. This provisions a PAID service/disk
-# when you apply the Blueprint in Render; no resources are created by Git push.
+# Render Free with HTTPS email delivery, Paystack and database-backed photos.
+# Apply environment changes to an existing manually configured service yourself.
 services:
   - type: web
     name: verysure-api
     runtime: node
-    plan: starter
+    plan: free
     region: virginia
     buildCommand: npm ci --include=dev && npm run db:generate && npm run build:backend
     startCommand: npm run db:migrate && npm start --workspace backend
     healthCheckPath: /health
-    disk:
-      name: verysure-uploads
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: "24"
@@ -37,22 +33,18 @@ services:
       - key: PHOTO_SIGNING_SECRET
         generateValue: true
       - key: OTP_PROVIDER
-        value: smtp
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: "465"
-      - key: SMTP_USER
+        value: resend
+      - key: RESEND_API_KEY
         sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: MAIL_FROM
+      - key: OTP_FROM
         sync: false
       - key: PAYMENT_PROVIDER
-        value: demo
+        value: paystack
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
       - key: ALLOW_DEMO_PAYMENTS
-        value: "true"
-      - key: UPLOAD_DIR
-        value: /var/data/uploads
+        value: "false"
+      - key: PHOTO_STORAGE
+        value: database
       - key: SEED_PASSWORD
         generateValue: true

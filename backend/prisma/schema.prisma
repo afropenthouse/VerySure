@@ -228,6 +228,7 @@ model Photo {
   userId String
   user User @relation(fields: [userId], references: [id])
   storageKey String @unique
+  data Bytes?
   createdAt DateTime @default(now())
   reports Report[]
 }

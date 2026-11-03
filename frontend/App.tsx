@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -344,6 +345,21 @@ function Shell() {
     setScreen("Home");
     setResult(undefined);
     setReportPrefill(undefined);
+  }, [user?.id]);
+  React.useEffect(() => {
+    const openWallet = ({ url }: { url: string }) => {
+      if (url.startsWith("verysure://wallet") && user) {
+        setScreen("Wallet");
+        void refresh().catch(() => {});
+      }
+    };
+    const listener = Linking.addEventListener("url", openWallet);
+    void Linking.getInitialURL()
+      .then((url) => {
+        if (url) openWallet({ url });
+      })
+      .catch(() => {});
+    return () => listener.remove();
   }, [user?.id]);
   const go = (s: Screen) => {
     setScreen(s);

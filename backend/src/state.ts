@@ -148,6 +148,10 @@ export async function stateRoutes(app: FastifyInstance) {
       : undefined;
     return {
       actorId: actor.id,
+      paymentProvider: config.PAYMENT_PROVIDER,
+      paymentTestMode:
+        config.PAYMENT_PROVIDER === "paystack" &&
+        config.PAYSTACK_SECRET_KEY?.startsWith("sk_test_"),
       demoOtp: config.OTP_PROVIDER === "demo",
       demoPayments:
         config.PAYMENT_PROVIDER === "demo" && config.ALLOW_DEMO_PAYMENTS,

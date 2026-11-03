@@ -14,7 +14,8 @@ const schema = z.object({
   OTP_SECRET: z.string().min(32),
   PHOTO_SIGNING_SECRET: z.string().min(32),
   OTP_PROVIDER: z.enum(["demo", "resend", "smtp"]).default("demo"),
-  PAYMENT_PROVIDER: z.enum(["demo", "gateway"]).default("demo"),
+  PAYMENT_PROVIDER: z.enum(["demo", "gateway", "paystack"]).default("demo"),
+  PAYSTACK_SECRET_KEY: z.string().optional(),
   ALLOW_DEMO_PAYMENTS: z
     .string()
     .default("false")
@@ -24,6 +25,7 @@ const schema = z.object({
     .default("http://localhost:8081,http://localhost:8082"),
   PUBLIC_API_URL: z.url().default("http://localhost:4000"),
   UPLOAD_DIR: z.string().default("./uploads"),
+  PHOTO_STORAGE: z.enum(["database", "local"]).default("database"),
   RESEND_API_KEY: z.string().optional(),
   OTP_FROM: z.string().optional(),
   SMTP_HOST: z.string().optional(),
@@ -39,6 +41,19 @@ const schema = z.object({
   PAYMENT_WEBHOOK_SECRET: z.string().optional(),
 });
 export const config = schema.parse(process.env);
+if (
+  config.PAYMENT_PROVIDER === "paystack" &&
+  !/^sk_(test|live)_[a-zA-Z0-9]+$/.test(config.PAYSTACK_SECRET_KEY || "")
+)
+  throw new Error("Paystack requires a valid PAYSTACK_SECRET_KEY.");
+if (
+  config.NODE_ENV === "production" &&
+  config.PAYMENT_PROVIDER === "paystack" &&
+  !config.PAYSTACK_SECRET_KEY?.startsWith("sk_live_")
+)
+  throw new Error(
+    "Production requires a live Paystack secret key. Use development for Paystack test-mode acceptance testing.",
+  );
 if (
   config.OTP_PROVIDER === "smtp" &&
   (!config.SMTP_HOST ||

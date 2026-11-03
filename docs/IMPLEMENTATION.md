@@ -1,6 +1,6 @@
 # Verysure connected implementation
 
-Updated 2 November 2026. The repository now contains `frontend` (React Native / Expo) and `backend` (Fastify, PostgreSQL and Prisma). Root npm workspaces keep the original `npm run android` and `npm start` commands working.
+Updated 3 November 2026. The repository contains `frontend` (React Native / Expo) and `backend` (Fastify, PostgreSQL and Prisma). Root npm workspaces keep `npm run android` and `npm start` working.
 
 ## Implemented
 
@@ -19,7 +19,7 @@ All UI mutations now call explicit backend endpoints. No local demo store or cli
 
 ## Development providers
 
-Local `backend/.env` uses demo OTP and payment adapters. The database and authentication are real. Resend and SMTP email delivery and a configurable payment-bridge contract are implemented. The Render test configuration selects SMTP email OTPs and simulated payments. SMTP transport tests cover TLS, delivery failures and private API errors; live delivery from Render still needs verification. Production provider credentials and the vendor-specific payment adapter must be configured before launch. SMS delivery remains a future adapter. See [DEPLOYMENT.md](DEPLOYMENT.md) for Render, Neon and Expo APK setup.
+Local development can use explicit demo adapters. Paystack hosted checkout now supports initialization, server-side verification, signed webhooks and automatic/manual payment checks. The supplied test key successfully initialized a sandbox checkout; its TEST success scenario was completed and verified through the backend, crediting a local test wallet exactly once. This is not a live-money test. SMTP and Resend email delivery are implemented; Render Free requires the HTTPS Resend adapter and a verified sender for all testers. These email credentials still need configuration. SMS remains a future adapter. See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 Sample product data is for development and cannot establish the authenticity of a real purchase. Generated sample EAN-13 values do not grant a GS1 allocation. Shape identifiers do not provide image-based shape recognition.
 
@@ -29,15 +29,15 @@ The backend integration suite uses a separate `verysure_test` PostgreSQL databas
 
 Frontend tests cover money-entry validation and kobo display precision. End-to-end browser review covered server registration with a development OTP, cookie session establishment and verification of a seeded product through the API. Type checking, backend compilation and mobile/web bundle checks are recorded in the delivery handoff.
 
-The twelve PostgreSQL integration cases also include a 5,000-code batch, private code pagination and duplicate-code rollback. The backend runtime dependency audit returned zero reported vulnerabilities on 2 November 2026. The full workspace audit still reports 25 findings (three high, 21 moderate, one low) through the existing Expo SDK 55 and React Native tooling tree. Resolving those requires a separately validated mobile SDK/toolchain upgrade; no forced major upgrade was applied during backend integration.
+The PostgreSQL integration cases also include Paystack concurrency/signature/amount/mode checks, new consumer/retailer/manufacturer registration with a mocked email transport, regulator provisioning and a fresh product's approval-to-verification workflow, plus a 5,000-code batch and private pagination. External email delivery must still be tested with configured sender credentials. The backend runtime dependency audit returned zero reported vulnerabilities on 2 November 2026; the full workspace audit previously reported Expo/RN tooling findings, which require a separately validated SDK upgrade.
 
 ## Operational limits and remaining work
 
-- Physical Android/iOS camera, GPS, permission and secure-storage checks; signed APK/IPA builds and app-store distribution still require device/account-owned testing.
-- Live OTP/payment providers are not activated. There is no real settlement or SMS delivery with the supplied development configuration.
+- Physical Android/iOS camera, GPS, permission and secure-storage checks still require device acceptance testing; store distribution is not configured.
+- Paystack test credentials do not charge real money. Live keys, live webhooks, real email sender credentials and separate live wallet data are required before customer launch. SMS delivery is not implemented.
 - Map analytics, offline verification and national-scale infrastructure remain PRD roadmap items. Full production load/security testing is still required; local integration results do not establish nationwide capacity.
 - Recent dashboard collections are bounded; verification history has pagination. Administrative search/pagination beyond those bounded views is a future scale improvement.
-- Private photos use local persistent storage. Multiple API instances require shared/object storage. Rate limiting currently uses one process's memory; use a shared store when scaling.
+- Private photos now default to PostgreSQL bytes and survive Render Free restarts. Legacy local-file records still require their original files. Monitor database storage and use private object storage for larger volumes. Rate limiting uses one process's memory; use a shared store when scaling.
 - Wallets use integer kobo with an explicit maximum balance of ₦20,000,000 and per-operation maximum of ₦1,000,000. Expanding those limits requires a deliberate BigInt/API migration.
 - Six-digit public user IDs have a finite namespace; the PRD's 200-million-user ambition cannot be met by globally unique six-digit IDs without changing the identifier design.
 

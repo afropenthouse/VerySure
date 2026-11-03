@@ -38,6 +38,8 @@ type Store = {
   storageError: string;
   demoPayments: boolean;
   demoOtp: boolean;
+  paymentProvider: string;
+  paymentTestMode: boolean;
   refresh: () => Promise<void>;
   request: <T = any>(
     path: string,
@@ -58,6 +60,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [storageError, setError] = useState("");
   const [demoPayments, setDemoPayments] = useState(false);
   const [demoOtp, setDemoOtp] = useState(false);
+  const [paymentProvider, setPaymentProvider] = useState("demo");
+  const [paymentTestMode, setPaymentTestMode] = useState(false);
   const [stats, setStats] = useState<Record<string, number>>();
   const generation = useRef(0);
   async function refresh() {
@@ -68,6 +72,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           actorId: string;
           demoPayments: boolean;
           demoOtp: boolean;
+          paymentProvider: string;
+          paymentTestMode: boolean;
           stats?: Record<string, number>;
         }
       >("/api/state");
@@ -79,6 +85,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setUserId(data.actorId);
       setDemoPayments(data.demoPayments);
       setDemoOtp(data.demoOtp);
+      setPaymentProvider(data.paymentProvider);
+      setPaymentTestMode(data.paymentTestMode);
       setStats(data.stats);
       setError("");
     } catch (error) {
@@ -172,6 +180,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         storageError,
         demoPayments,
         demoOtp,
+        paymentProvider,
+        paymentTestMode,
         refresh,
         request,
         login: async (identifier, password) =>

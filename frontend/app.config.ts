@@ -18,12 +18,13 @@ export default (): ExpoConfig => {
       eas: { projectId: "7ee0b660-24c2-4c1e-94e8-4cfb761b420c" },
     },
     scheme: "verysure",
-    version: "1.0.0",
+    version: "1.0.1",
     orientation: "portrait",
     userInterfaceStyle: "light",
     icon: "./assets/icon.png",
     ios: { supportsTablet: true, bundleIdentifier: "ng.verysure.mobile" },
     android: {
+      versionCode: 2,
       package: "ng.verysure.mobile",
       adaptiveIcon: {
         foregroundImage: "./assets/adaptive-icon.png",

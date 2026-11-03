@@ -97,6 +97,7 @@ export type Notification = {
   date: string;
 };
 export type Payment = {
+  provider: "demo" | "gateway" | "paystack";
   id: string;
   userId: string;
   amountKobo: number;

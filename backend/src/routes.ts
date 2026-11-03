@@ -80,14 +80,47 @@ export async function routes(app: FastifyInstance) {
       })
       .strict()
       .parse(req.body);
-    return verificationDto(
-      await verifyProduct(
-        req.actor.id,
-        input.code,
-        input.idempotencyKey,
-        req.actor.locationEnabled ? input.location : undefined,
-      ),
+    const result = await verifyProduct(
+      req.actor.id,
+      input.code,
+      input.idempotencyKey,
+      req.actor.locationEnabled ? input.location : undefined,
     );
+    const record = await db.verification.findUniqueOrThrow({
+      where: { id: result.id },
+      include: { product: { include: { manufacturer: true } }, batch: true },
+    });
+    const { product, batch, ...verification } = record;
+    return {
+      ...verificationDto(verification),
+      details:
+        product && batch
+          ? {
+              product: {
+                id: product.id,
+                manufacturerId: product.manufacturerId,
+                name: product.name,
+                category: product.category,
+                description: product.description,
+                unit: product.unit,
+                regulatory: product.regulatory,
+              },
+              batch: {
+                ...batch,
+                manufactured: batch.manufactured.toISOString().slice(0, 10),
+                expires: batch.expires.toISOString().slice(0, 10),
+              },
+              manufacturer: {
+                id: product.manufacturer.id,
+                name: product.manufacturer.name,
+                category: product.manufacturer.category,
+                rc: product.manufacturer.rc,
+                status: product.manufacturer.status,
+                approval: product.manufacturer.approval,
+              },
+            }
+          : undefined,
+    };
   });
   app.get(
     "/api/wallet/recipient/:id",
@@ -129,7 +162,11 @@ export async function routes(app: FastifyInstance) {
     const input = z
       .object({
         amountKobo: amount.min(10000),
-        method: z.enum(["Moniepoint transfer", "International card"]),
+        method: z.enum([
+          "Moniepoint transfer",
+          "International card",
+          "Paystack checkout",
+        ]),
         idempotencyKey: key,
       })
       .strict()
@@ -142,35 +179,65 @@ export async function routes(app: FastifyInstance) {
         },
       },
     });
-    if (payment)
-      requireValue(
-        payment.amountKobo === input.amountKobo &&
-          payment.method === input.method,
-        "This request key was already used for another payment.",
-        409,
-      );
-    else
-      payment = await db.payment.create({
-        data: {
-          id: `VS-PAY-${randomUUID()}`,
-          userId: req.actor.id,
-          ...input,
-          provider: config.PAYMENT_PROVIDER,
-        },
-      });
+    if (!payment) {
+      try {
+        payment = await db.payment.create({
+          data: {
+            id: `VS-PAY-${randomUUID()}`,
+            userId: req.actor.id,
+            ...input,
+            provider: config.PAYMENT_PROVIDER,
+          },
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code !== "P2002") throw error;
+        // A concurrent retry may have created the same request in the meantime.
+        payment = await db.payment.findUnique({
+          where: {
+            userId_idempotencyKey: {
+              userId: req.actor.id,
+              idempotencyKey: input.idempotencyKey,
+            },
+          },
+        });
+        if (!payment) throw error;
+      }
+    }
+    requireValue(
+      payment.amountKobo === input.amountKobo &&
+        payment.method === input.method,
+      "This request key was already used for another payment.",
+      409,
+    );
     if (
-      payment.provider === "gateway" &&
+      payment.provider !== "demo" &&
       !payment.checkoutUrl &&
       payment.status === "pending"
     ) {
-      const checkout = await initiateCheckout({
-        ...payment,
-        email: req.actor.email,
-      });
-      payment = await db.payment.update({
-        where: { id: payment.id },
-        data: checkout,
-      });
+      requireValue(
+        payment.provider === config.PAYMENT_PROVIDER,
+        "This payment uses a previous provider. Create a new payment.",
+        409,
+      );
+      payment = await db.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "Payment" WHERE id=${payment!.id} FOR UPDATE`;
+          const current = await tx.payment.findUniqueOrThrow({
+            where: { id: payment!.id },
+          });
+          if (current.checkoutUrl || current.status !== "pending")
+            return current;
+          const checkout = await initiateCheckout({
+            ...current,
+            email: req.actor.email,
+          });
+          return tx.payment.update({
+            where: { id: current.id },
+            data: checkout,
+          });
+        },
+        { timeout: 25000 },
+      );
     }
     return payment;
   });
@@ -197,7 +264,12 @@ export async function routes(app: FastifyInstance) {
     { preHandler: authenticate },
     async (req) => {
       const result = await db.payment.updateMany({
-        where: { id: params(req).id, userId: req.actor.id, status: "pending" },
+        where: {
+          id: params(req).id,
+          userId: req.actor.id,
+          status: "pending",
+          provider: { not: "paystack" },
+        },
         data: { status: "cancelled" },
       });
       requireValue(
@@ -297,8 +369,18 @@ export async function routes(app: FastifyInstance) {
       } catch {
         throw new ApiError(400, "The image cannot be processed.");
       }
-      await mkdir(uploadDir, { recursive: true });
       const storageKey = `${randomUUID()}.jpg`;
+      if (config.PHOTO_STORAGE === "database") {
+        const photo = await db.photo.create({
+          data: {
+            userId: req.actor.id,
+            storageKey,
+            data: new Uint8Array(buffer),
+          },
+        });
+        return { photoId: photo.id };
+      }
+      await mkdir(uploadDir, { recursive: true });
       const target = path.join(uploadDir, storageKey);
       await writeFile(target, buffer, { flag: "wx" });
       try {
@@ -331,6 +413,7 @@ export async function routes(app: FastifyInstance) {
     const photo = await db.photo.findUnique({ where: { id: photoId } });
     requireValue(photo, "Photo not found.", 404);
     reply.header("Cache-Control", "private, no-store").type("image/jpeg");
+    if (photo.data) return Buffer.from(photo.data);
     return readFile(path.join(uploadDir, photo.storageKey));
   });
   app.post("/api/reports", { preHandler: authenticate }, async (req) => {

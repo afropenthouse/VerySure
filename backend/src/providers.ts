@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { ApiError } from "./security.js";
 import nodemailer from "nodemailer";
+import { initializePaystack } from "./paystack.js";
 export async function deliverOtp(email: string, otp: string) {
   if (config.OTP_PROVIDER === "demo") return { demoCode: otp };
   if (config.OTP_PROVIDER === "smtp") {
@@ -63,6 +64,8 @@ export async function initiateCheckout(payment: {
   email: string;
 }) {
   if (config.PAYMENT_PROVIDER === "demo") return {};
+  if (config.PAYMENT_PROVIDER === "paystack")
+    return initializePaystack(payment);
   // Configurable server-to-server bridge. A provider-specific integration must implement this documented contract.
   const response = await fetch(config.PAYMENT_INITIATE_URL!, {
     method: "POST",

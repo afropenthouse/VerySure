@@ -1,4 +1,4 @@
-import { test, before, after } from "node:test";
+import { test, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHmac } from "node:crypto";
 const testUrl = process.env.TEST_DATABASE_URL;
@@ -14,6 +14,7 @@ const { db } = await import("../src/db.js");
 const { buildApp } = await import("../src/app.js");
 const { seedDatabase } = await import("../prisma/seed.js");
 const { hashPassword, checkPassword } = await import("../src/security.js");
+const { config } = await import("../src/config.js");
 const app = await buildApp({ logger: false });
 const tokens: Record<string, string> = {};
 const accounts = [
@@ -549,6 +550,13 @@ test("private photo uploads validate bytes and expire signed links", async () =>
   const response = await upload(png);
   assert.equal(response.statusCode, 200, response.body);
   const photoId = response.json().photoId;
+  const persistedPhoto = await db.photo.findUniqueOrThrow({
+    where: { id: photoId },
+  });
+  assert.ok(
+    persistedPhoto.data?.length,
+    "Photo bytes must persist in PostgreSQL on Render Free",
+  );
   const forbidden = await send(
     "/api/reports",
     {
@@ -582,6 +590,361 @@ test("private photo uploads validate bytes and expire signed links", async () =>
     ).statusCode,
     403,
   );
+});
+
+test("Paystack checkout, owner-only verification, signed webhooks and retries credit once", async () => {
+  const original = { ...config };
+  Object.assign(config, {
+    PAYMENT_PROVIDER: "paystack",
+    PAYSTACK_SECRET_KEY: "sk_test_integrationOnly",
+    ALLOW_DEMO_PAYMENTS: false,
+  });
+  let initialized = 0;
+  let transactionStatus = "pending";
+  let amount = 12500;
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (url: string | URL | Request, init?: RequestInit) => {
+      const address = String(url);
+      assert.equal(
+        new Headers(init?.headers).get("Authorization"),
+        "Bearer sk_test_integrationOnly",
+      );
+      if (address.endsWith("/initialize")) {
+        initialized++;
+        const body = JSON.parse(String(init?.body));
+        assert.equal(body.currency, "NGN");
+        assert.equal(body.amount, "12500");
+        assert.ok(
+          body.callback_url.endsWith("/api/payments/paystack/callback"),
+        );
+        return new Response(
+          JSON.stringify({
+            status: true,
+            data: {
+              reference: body.reference,
+              authorization_url: "https://checkout.paystack.com/test-checkout",
+            },
+          }),
+        );
+      }
+      assert.ok(
+        address.startsWith("https://api.paystack.co/transaction/verify/"),
+      );
+      return new Response(
+        JSON.stringify({
+          status: true,
+          data: {
+            reference: address.split("/").pop(),
+            amount,
+            currency: "NGN",
+            domain: "test",
+            status: transactionStatus,
+          },
+        }),
+      );
+    },
+  );
+  try {
+    const input = {
+      amountKobo: 12500,
+      method: "Paystack checkout",
+      idempotencyKey: randomUUID(),
+    };
+    const responses = await Promise.all([
+      send("/api/payments", input),
+      send("/api/payments", input),
+    ]);
+    for (const response of responses)
+      assert.equal(response.statusCode, 200, response.body);
+    const payment = responses[0].json();
+    assert.equal(payment.id, responses[1].json().id);
+    assert.equal(initialized, 1);
+    assert.equal(payment.provider, "paystack");
+    assert.equal(
+      (await send(`/api/payments/${payment.id}/confirm-demo`, {})).statusCode,
+      403,
+    );
+    assert.equal(
+      (await send(`/api/payments/${payment.id}/cancel`, {})).statusCode,
+      409,
+    );
+    assert.equal(
+      (await send(`/api/payments/${payment.id}/verify`, {}, "manufacturer"))
+        .statusCode,
+      404,
+    );
+    const before = await db.wallet.findUniqueOrThrow({
+      where: { userId: "104286" },
+    });
+    const pending = await send(`/api/payments/${payment.id}/verify`, {});
+    assert.equal(pending.json().status, "pending");
+    assert.equal(
+      (await db.wallet.findUniqueOrThrow({ where: { userId: "104286" } }))
+        .balanceKobo,
+      before.balanceKobo,
+    );
+    transactionStatus = "success";
+    amount = 25000;
+    assert.equal(
+      (await send(`/api/payments/${payment.id}/verify`, {})).statusCode,
+      409,
+    );
+    amount = 12500;
+    const event = {
+      event: "charge.success",
+      data: {
+        reference: payment.id,
+        status: "success",
+        amount,
+        currency: "NGN",
+        domain: "test",
+      },
+    };
+    async function webhook(payload: unknown, valid = true) {
+      const raw = JSON.stringify(payload);
+      return app.inject({
+        method: "POST",
+        url: "/api/payments/paystack/webhook",
+        headers: {
+          "content-type": "application/json",
+          "x-paystack-signature": valid
+            ? createHmac("sha512", config.PAYSTACK_SECRET_KEY!)
+                .update(raw)
+                .digest("hex")
+            : "0".repeat(128),
+        },
+        payload: raw,
+      });
+    }
+    assert.equal((await webhook(event, false)).statusCode, 401);
+    assert.equal(
+      (await webhook({ ...event, data: { ...event.data, currency: "USD" } }))
+        .statusCode,
+      409,
+    );
+    assert.equal(
+      (await webhook({ ...event, data: { ...event.data, domain: "live" } }))
+        .statusCode,
+      409,
+    );
+    assert.equal(
+      (await webhook({ ...event, data: { ...event.data, amount: 25000 } }))
+        .statusCode,
+      409,
+    );
+    const outcomes = await Promise.all([
+      webhook(event),
+      webhook(event),
+      send(`/api/payments/${payment.id}/verify`, {}),
+    ]);
+    for (const outcome of outcomes)
+      assert.equal(outcome.statusCode, 200, outcome.body);
+    assert.equal(
+      (await db.wallet.findUniqueOrThrow({ where: { userId: "104286" } }))
+        .balanceKobo,
+      before.balanceKobo + 12500,
+    );
+    assert.equal(
+      await db.walletTransaction.count({
+        where: { reference: payment.id, type: "topup" },
+      }),
+      1,
+    );
+    const callback = await app.inject({
+      url: `/api/payments/paystack/callback?reference=${payment.id}`,
+    });
+    assert.equal(callback.statusCode, 200);
+    assert.match(callback.body, /Payment confirmed/);
+    assert.ok(!callback.body.includes("consumer@"));
+    assert.equal(
+      (await webhook({ event: "unrelated.event", data: {} })).statusCode,
+      200,
+    );
+    assert.equal(
+      (
+        await webhook({
+          ...event,
+          data: { ...event.data, reference: "other-merchant-checkout" },
+        })
+      ).statusCode,
+      200,
+    );
+  } finally {
+    fetchMock.mock.restore();
+    Object.assign(config, original);
+  }
+});
+
+test("fresh manufacturer approval, issued batch and consumer/retailer verification work without sample products", async () => {
+  const original = { ...config };
+  Object.assign(config, {
+    OTP_PROVIDER: "resend",
+    RESEND_API_KEY: "test-email-key",
+    OTP_FROM: "Verysure <test@example.com>",
+  });
+  let mailedCode = "";
+  const fetchMock = mock.method(
+    globalThis,
+    "fetch",
+    async (url: string | URL | Request, init?: RequestInit) => {
+      assert.equal(String(url), "https://api.resend.com/emails");
+      const body = JSON.parse(String(init?.body));
+      mailedCode = body.text.match(/\b\d{6}\b/)[0];
+      return new Response(JSON.stringify({ id: randomUUID() }));
+    },
+  );
+  async function register(
+    role: "consumer" | "retailer" | "manufacturer",
+    index: number,
+  ) {
+    const requested = await app.inject({
+      method: "POST",
+      url: "/api/auth/request-code",
+      payload: {
+        name: `Workflow ${role}`,
+        email: `workflow-${role}@example.com`,
+        phone: `0805555500${index}`,
+        password: "Workflow-test-password-2026",
+        address: "Workflow test address",
+        role,
+        ...(role !== "consumer" ? { company: `Workflow ${role}` } : {}),
+        ...(role === "manufacturer"
+          ? { rc: "RC-WORKFLOW", category: "Food & beverages" }
+          : {}),
+      },
+    });
+    assert.equal(requested.statusCode, 200, requested.body);
+    assert.equal(requested.json().demoCode, undefined);
+    const activated = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      headers: { "x-client-type": "native" },
+      payload: { challengeId: requested.json().challengeId, code: mailedCode },
+    });
+    assert.equal(activated.statusCode, 200, activated.body);
+    const token = activated.json().token;
+    const state = await app.inject({
+      url: "/api/state",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    return { token, id: state.json().actorId };
+  }
+  const call = (
+    token: string,
+    url: string,
+    payload: object,
+    method: "POST" | "PATCH" = "POST",
+  ) =>
+    app.inject({
+      method,
+      url,
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+  try {
+    const manufacturer = await register("manufacturer", 1);
+    const buyer = await register("consumer", 2);
+    const retailer = await register("retailer", 3);
+    const productInput = {
+      name: "Workflow bottled water",
+      category: "Food & beverages",
+      unit: "50cl",
+      regulatory: "WORKFLOW-WATER-001",
+    };
+    assert.equal(
+      (await call(manufacturer.token, "/api/products", productInput))
+        .statusCode,
+      403,
+    );
+    const provisioned = await send(
+      "/api/admin/monitor-users",
+      {
+        id: "888888",
+        name: "Workflow SON",
+        email: "workflow-son@example.com",
+        phone: "08055555004",
+        password: "Workflow-monitor-password-2026",
+        address: "Workflow regulator address",
+        organization: "SON",
+      },
+      "admin",
+    );
+    assert.equal(provisioned.statusCode, 200, provisioned.body);
+    const monitorLogin = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { "x-client-type": "native" },
+      payload: {
+        identifier: "workflow-son@example.com",
+        password: "Workflow-monitor-password-2026",
+      },
+    });
+    assert.equal(monitorLogin.statusCode, 200);
+    const monitor = monitorLogin.json().token;
+    const approved = await call(
+      monitor,
+      `/api/monitor/manufacturers/${manufacturer.id}/review`,
+      { status: "approved" },
+    );
+    assert.equal(approved.statusCode, 200, approved.body);
+    const issued = await call(monitor, "/api/monitor/issue-batch", {
+      manufacturerId: manufacturer.id,
+    });
+    assert.equal(issued.statusCode, 200, issued.body);
+    const product = await call(
+      manufacturer.token,
+      "/api/products",
+      productInput,
+    );
+    assert.equal(product.statusCode, 200, product.body);
+    const batch = await call(manufacturer.token, "/api/batches", {
+      productId: product.json().id,
+      number: issued.json().number,
+      quantity: 1,
+      manufactured: "2026-10-01",
+      expires: "2028-10-01",
+      type: "serial",
+      codes: ["VS-WORKFLOW-WATER-0001"],
+    });
+    assert.equal(batch.statusCode, 200, batch.body);
+    for (const actor of [buyer, retailer]) {
+      const scan = await call(actor.token, "/api/verify", {
+        code: " vs-workflow-water-0001 ",
+        idempotencyKey: randomUUID(),
+      });
+      assert.equal(scan.statusCode, 200, scan.body);
+      assert.equal(scan.json().verdict, "GENUINE");
+      assert.equal(scan.json().details.product.name, productInput.name);
+      assert.equal(scan.json().details.manufacturer.id, manufacturer.id);
+      assert.equal(scan.json().chargedKobo, 0);
+    }
+    assert.equal(
+      (
+        await call(
+          manufacturer.token,
+          "/api/codes/VS-WORKFLOW-WATER-0001",
+          { blocked: true },
+          "PATCH",
+        )
+      ).statusCode,
+      200,
+    );
+    const blocked = await call(buyer.token, "/api/verify", {
+      code: "VS-WORKFLOW-WATER-0001",
+      idempotencyKey: randomUUID(),
+    });
+    assert.equal(blocked.json().verdict, "FAKE");
+    const unknown = await call(buyer.token, "/api/verify", {
+      code: "UNREGISTERED-WATER",
+      idempotencyKey: randomUUID(),
+    });
+    assert.equal(unknown.json().verdict, "UNKNOWN");
+  } finally {
+    fetchMock.mock.restore();
+    Object.assign(config, original);
+  }
 });
 test("bulk batches create 5000 unique codes, paginate privately and roll back duplicate codes", async () => {
   const created = await send(

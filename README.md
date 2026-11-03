@@ -1,6 +1,6 @@
 # Verysure
 
-React Native mobile frontend and a connected Fastify backend using PostgreSQL and Prisma. Registration, sessions, product verification, wallets, reports, messaging, notifications and all five role workspaces use server data. Local development uses demo OTPs and payments; the Render test configuration uses SMTP email OTPs and simulated payments.
+React Native mobile frontend and a connected Fastify backend using PostgreSQL and Prisma. Registration, sessions, product verification, wallets, reports, messaging, notifications and all five role workspaces use server data. Paystack hosted checkout supports verified wallet top-ups. Resend supports email OTPs on Render Free; sender credentials are required. Local development can still use explicit demo providers.
 
 ```text
 VerySure/
@@ -123,7 +123,7 @@ Press **Ctrl+C** in each server terminal. To stop only the dedicated Verysure Po
 
 For this project's Render + Neon test deployment and Expo APK build, follow
 [the deployment guide](docs/DEPLOYMENT.md). The included `render.yaml` prepares
-a test backend with SMTP OTPs, demo payments and a persistent upload disk.
+a backend with Resend email OTPs, Paystack payments and private photos stored in PostgreSQL.
 
 Use `backend/.env.example` as the configuration reference. Keep actual `.env` files and `backend/.local` private. Docker Compose is supplied as an alternative to the Windows cluster helper; it requires `POSTGRES_PASSWORD` and an available Docker engine. Do not run both database options on port 55432 at the same time.
 

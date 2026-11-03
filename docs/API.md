@@ -84,6 +84,24 @@ Provision the first deployment administrator with `npm run admin:create --worksp
 
 ## Provider configuration
 
+`PAYMENT_PROVIDER=paystack` uses `PAYSTACK_SECRET_KEY` to initialize hosted checkout.
+Set `ALLOW_DEMO_PAYMENTS=false`. The public key is not needed by this redirect flow.
+`POST /api/payments` accepts `method: "Paystack checkout"` (legacy method labels
+are also accepted). `POST /api/payments/:id/verify` checks an owned payment with
+Paystack and credits only the matching successful NGN transaction. Its response
+includes `status` and `alreadySettled`. Configure signed Paystack events at
+`POST /api/payments/paystack/webhook`; signature verification uses the raw body
+and `x-paystack-signature`, signed with the Paystack secret. The callback is
+`GET /api/payments/paystack/callback?reference=...`. Both confirmation paths
+check the amount, reference and test/live mode and share idempotent settlement.
+Paystack payments cannot be cancelled locally after checkout initialization.
+`sk_test_` keys never represent real deposits; production requires `sk_live_`.
+
+`PHOTO_STORAGE=database` (default) stores processed photos in PostgreSQL bytes.
+`PHOTO_STORAGE=local` retains the legacy private upload directory implementation.
+Apply all migrations before enabling database storage. Existing deleted local
+files cannot be recovered through the migration.
+
 Default requested development settings:
 
 ```dotenv

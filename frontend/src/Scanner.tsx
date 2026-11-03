@@ -16,8 +16,18 @@ export function Scanner({ onResult }: { onResult: (v: Verification) => void }) {
   const [error, setError] = useState("");
   const lock = useRef(false);
   const scanKey = useRef(uid());
+  const attemptedCode = useRef("");
   const verify = async (value: string) => {
     if (lock.current) return;
+    value = value.trim().toUpperCase();
+    if (!value) {
+      setError("Scan a barcode or enter a product code first.");
+      return;
+    }
+    if (attemptedCode.current !== value) {
+      scanKey.current = uid();
+      attemptedCode.current = value;
+    }
     lock.current = true;
     setBusy(true);
     setError("");
@@ -47,8 +57,8 @@ export function Scanner({ onResult }: { onResult: (v: Verification) => void }) {
         <Text style={S.eyebrow}>KNOW WHAT YOU’RE BUYING</Text>
         <Text style={S.h1}>A scan away{"\n"}from certainty.</Text>
         <Text style={S.text}>
-          Point your camera at a barcode or enter the product’s unique code
-          below.
+          Scan a barcode or enter a code registered by its manufacturer. Codes
+          outside Verysure’s database return an unknown result.
         </Text>
       </View>
       <View
@@ -196,7 +206,7 @@ export function Scanner({ onResult }: { onResult: (v: Verification) => void }) {
       </View>
       {demoOtp && (
         <View style={{ gap: 10 }}>
-          <Text style={S.small}>TRY A DEMO CODE</Text>
+          <Text style={S.small}>SAMPLE CODES (REQUIRE SAMPLE DATA)</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {[
               { label: "Genuine", code: "VS-EMZR-2026-0001" },
@@ -213,7 +223,8 @@ export function Scanner({ onResult }: { onResult: (v: Verification) => void }) {
             ))}
           </View>
           <Text style={S.small}>
-            These sample codes are verified against the development server.
+            These codes work only when sample products have been added to this
+            server.
           </Text>
         </View>
       )}

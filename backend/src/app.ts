@@ -12,6 +12,7 @@ import { db } from "./db.js";
 import { authRoutes } from "./auth.js";
 import { stateRoutes } from "./state.js";
 import { routes } from "./routes.js";
+import { paystackRoutes } from "./paystack-routes.js";
 export async function buildApp({ logger = config.NODE_ENV !== "test" } = {}) {
   const app = Fastify({
     logger: logger
@@ -83,11 +84,12 @@ export async function buildApp({ logger = config.NODE_ENV !== "test" } = {}) {
     });
   });
   app.get("/health", async () => {
-    await db.$queryRaw`SELECT 1`;
+    await db.user.count();
     return { status: "ok", database: "postgresql" };
   });
   await authRoutes(app);
   await stateRoutes(app);
   await routes(app);
+  await paystackRoutes(app);
   return app;
 }
