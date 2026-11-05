@@ -403,6 +403,12 @@ test("manufacturer approval and ownership gates protect product/code operations"
   );
 });
 test("reports, manufacturer replies, notifications and admin workflow persist across users", async () => {
+  const countBefore = await db.report.count();
+  for (const description of ["", "Fg"]) {
+    const invalid = await send("/api/reports", { product: "Gg", description });
+    assert.equal(invalid.statusCode, 400);
+  }
+  assert.equal(await db.report.count(), countBefore);
   const report = await send("/api/reports", {
     product: "Suspected product",
     code: "TEST",
@@ -410,6 +416,68 @@ test("reports, manufacturer replies, notifications and admin workflow persist ac
   });
   assert.equal(report.statusCode, 200);
   const id = report.json().id;
+  for (const role of ["monitor", "son", "admin"]) {
+    const reviewerState = (
+      await app.inject({ url: "/api/state", headers: auth(role) })
+    ).json();
+    assert.ok(
+      reviewerState.reports.some((r: any) => r.id === id),
+      `${role} must receive the report`,
+    );
+    assert.ok(
+      reviewerState.notifications.some(
+        (n: any) =>
+          n.title === "New product report" && n.body.includes(id.slice(0, 8)),
+      ),
+      `${role} must be notified`,
+    );
+  }
+  const manufacturerState = (
+    await app.inject({ url: "/api/state", headers: auth("manufacturer") })
+  ).json();
+  assert.ok(!manufacturerState.reports.some((r: any) => r.id === id));
+  assert.equal(
+    (
+      await send(
+        `/api/reports/${id}/status`,
+        { status: "investigating" },
+        "consumer",
+        "PATCH",
+      )
+    ).statusCode,
+    403,
+  );
+  assert.equal(
+    (
+      await send(
+        `/api/reports/${id}/status`,
+        { status: "investigating" },
+        "monitor",
+        "PATCH",
+      )
+    ).statusCode,
+    200,
+  );
+  const notificationCount = await db.notification.count({
+    where: { userId: "104286", title: "Report status updated" },
+  });
+  assert.equal(
+    (
+      await send(
+        `/api/reports/${id}/status`,
+        { status: "investigating" },
+        "monitor",
+        "PATCH",
+      )
+    ).statusCode,
+    200,
+  );
+  assert.equal(
+    await db.notification.count({
+      where: { userId: "104286", title: "Report status updated" },
+    }),
+    notificationCount,
+  );
   assert.equal(
     (
       await send(
@@ -1031,4 +1099,52 @@ test("first-admin bootstrap requires explicit promotion and preserves registered
     }),
     1,
   );
+});
+
+test("login limits isolate accounts sharing a network while keeping an IP-wide cap", async () => {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const result = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      remoteAddress: "198.51.100.20",
+      payload: {
+        identifier: "limited@example.com",
+        password: "Incorrect-password",
+      },
+    });
+    assert.equal(result.statusCode, 401, result.body);
+  }
+  const blocked = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    remoteAddress: "198.51.100.20",
+    payload: {
+      identifier: " LIMITED@example.com ",
+      password: "Incorrect-password",
+    },
+  });
+  assert.equal(blocked.statusCode, 429);
+  const other = await app.inject({
+    method: "POST",
+    url: "/api/auth/login",
+    remoteAddress: "198.51.100.20",
+    headers: { "x-client-type": "native" },
+    payload: {
+      identifier: "manufacturer@verysure.ng",
+      password: process.env.SEED_PASSWORD,
+    },
+  });
+  assert.equal(other.statusCode, 200, other.body);
+  for (let attempt = 0; attempt < 61; attempt++) {
+    const result = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      remoteAddress: "198.51.100.21",
+      payload: {
+        identifier: `ip-limit-${attempt}@example.com`,
+        password: "Incorrect-password",
+      },
+    });
+    assert.equal(result.statusCode, attempt === 60 ? 429 : 401, result.body);
+  }
 });

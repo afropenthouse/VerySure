@@ -34,6 +34,37 @@ import { initiateCheckout } from "./providers.js";
 import { verificationDto, publicUserSelect } from "./state.js";
 import { issueNumber } from "./identifiers.js";
 const params = (req: FastifyRequest) => z.object({ id }).parse(req.params);
+async function updateReportStatus(req: FastifyRequest) {
+  allow(req, ["admin", "monitor"]);
+  const input = z
+    .object({ status: z.enum(["open", "investigating", "resolved"]) })
+    .strict()
+    .parse(req.body);
+  const reportId = params(req).id;
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Report" WHERE id=${reportId} FOR UPDATE`;
+    const report = await tx.report.findUnique({ where: { id: reportId } });
+    requireValue(report, "Report not found.", 404);
+    if (report.status === input.status) return { ok: true };
+    await tx.report.update({ where: { id: reportId }, data: input });
+    await tx.notification.create({
+      data: {
+        userId: report.userId,
+        title: "Report status updated",
+        body: `${report.product}: ${input.status}`,
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        actorId: req.actor.id,
+        action: "report.status",
+        targetId: reportId,
+        details: input,
+      },
+    });
+    return { ok: true };
+  });
+}
 async function approved(req: FastifyRequest) {
   allow(req, ["manufacturer"]);
   const m = await db.manufacturer.findUnique({ where: { id: req.actor.id } });
@@ -435,20 +466,45 @@ export async function routes(app: FastifyInstance) {
         "Attach a photo from your account.",
         403,
       );
-    return db.report.create({
-      data: {
-        userId: req.actor.id,
-        product: input.product,
-        code: input.code,
-        description: input.description,
-        photoId: input.photoId,
-        latitude: req.actor.locationEnabled
-          ? input.location?.latitude
-          : undefined,
-        longitude: req.actor.locationEnabled
-          ? input.location?.longitude
-          : undefined,
-      },
+    return db.$transaction(async (tx) => {
+      const report = await tx.report.create({
+        data: {
+          userId: req.actor.id,
+          product: input.product,
+          code: input.code,
+          description: input.description,
+          photoId: input.photoId,
+          latitude: req.actor.locationEnabled
+            ? input.location?.latitude
+            : undefined,
+          longitude: req.actor.locationEnabled
+            ? input.location?.longitude
+            : undefined,
+        },
+      });
+      const reviewers = await tx.user.findMany({
+        where: {
+          role: { in: ["monitor", "admin"] },
+          status: "active",
+          id: { not: req.actor.id },
+        },
+        select: { id: true },
+      });
+      await tx.notification.createMany({
+        data: [
+          {
+            userId: req.actor.id,
+            title: "Report received",
+            body: `${input.product}: submitted for regulator review.`,
+          },
+          ...reviewers.map((reviewer) => ({
+            userId: reviewer.id,
+            title: "New product report",
+            body: `${input.product}: report ${report.id.slice(0, 8)} awaits review in your Reports workspace.`,
+          })),
+        ],
+      });
+      return report;
     });
   });
   app.post("/api/messages", { preHandler: authenticate }, async (req) => {
@@ -847,35 +903,12 @@ export async function routes(app: FastifyInstance) {
   app.patch(
     "/api/admin/reports/:id",
     { preHandler: authenticate },
-    async (req) => {
-      allow(req, ["admin"]);
-      const input = z
-        .object({ status: z.enum(["open", "investigating", "resolved"]) })
-        .strict()
-        .parse(req.body);
-      return db.$transaction(async (tx) => {
-        const report = await tx.report.update({
-          where: { id: params(req).id },
-          data: input,
-        });
-        await tx.notification.create({
-          data: {
-            userId: report.userId,
-            title: "Report status updated",
-            body: `${report.product}: ${input.status}`,
-          },
-        });
-        await tx.auditLog.create({
-          data: {
-            actorId: req.actor.id,
-            action: "report.status",
-            targetId: report.id,
-            details: input,
-          },
-        });
-        return { ok: true };
-      });
-    },
+    updateReportStatus,
+  );
+  app.patch(
+    "/api/reports/:id/status",
+    { preHandler: authenticate },
+    updateReportStatus,
   );
   app.post("/api/admin/credits", { preHandler: authenticate }, async (req) => {
     allow(req, ["admin"]);

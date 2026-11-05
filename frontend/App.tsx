@@ -190,7 +190,6 @@ function Home({
             },
           ]}
         >
-          <Icon name="sparkles-outline" size={21} color={C.green} />
           <Text style={[S.h2, { color: C.green, marginTop: 6 }]}>
             {Math.max(0, 10 - wallet.freeUsed)}{" "}
             <Text style={{ fontSize: 13 }}>free scans</Text>

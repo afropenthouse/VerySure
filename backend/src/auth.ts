@@ -80,6 +80,11 @@ async function sessionFor(
   return req.headers["x-client-type"] === "native" ? { token } : {};
 }
 export async function authRoutes(app: FastifyInstance) {
+  const loginIpLimit = app.createRateLimit({
+    max: 60,
+    timeWindow: "15 minutes",
+    keyGenerator: (req) => `login-ip:${req.ip}`,
+  });
   app.post(
     "/api/auth/request-code",
     { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
@@ -211,7 +216,35 @@ export async function authRoutes(app: FastifyInstance) {
   );
   app.post(
     "/api/auth/login",
-    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    {
+      preValidation: async (req, reply) => {
+        const limit = await loginIpLimit(req);
+        if (!limit.isAllowed && limit.isExceeded) {
+          reply.header("Retry-After", limit.ttlInSeconds);
+          throw new ApiError(
+            429,
+            "Too many login attempts from this network. Please wait before trying again.",
+            "RATE_LIMITED",
+          );
+        }
+      },
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "15 minutes",
+          hook: "preHandler",
+          keyGenerator: (req) => {
+            const value = (req.body as { identifier?: unknown } | undefined)
+              ?.identifier;
+            const identifier =
+              typeof value === "string"
+                ? value.trim().toLowerCase().slice(0, 254)
+                : "invalid";
+            return `login-account:${req.ip}:${identifier.includes("@") ? identifier : identifier.replace(/[\s-]/g, "")}`;
+          },
+        },
+      },
+    },
     async (req, reply) => {
       const input = z
         .object({

@@ -1,5 +1,14 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, Image, Switch } from "react-native";
+import React, { useRef, useState } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  Image,
+  Switch,
+  Alert,
+  Platform,
+  Keyboard,
+} from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useStore } from "./store";
@@ -108,13 +117,18 @@ export function History({ onOpen }: { onOpen: (v: Verification) => void }) {
 export function Reports({ prefill }: { prefill?: Verification }) {
   const { state, user, request } = useStore();
   const [product, setProduct] = useState(
-    state.products.find((p) => p.id === prefill?.productId)?.name || "",
+    prefill?.details?.product.name ||
+      state.products.find((p) => p.id === prefill?.productId)?.name ||
+      "",
   );
   const [code, setCode] = useState(prefill?.code || "");
   const [description, setDescription] = useState("");
   const [photo, setPhoto] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const [validationAttempted, setValidationAttempted] = useState(false);
+  const submitting = useRef(false);
   async function attach(camera: boolean) {
     try {
       const permission = camera
@@ -138,20 +152,31 @@ export function Reports({ prefill }: { prefill?: Verification }) {
     }
   }
   async function submit() {
-    if (!product.trim() || description.trim().length < 10)
-      return setFeedback(
-        "Enter a product name and at least ten characters describing the issue.",
-      );
+    if (submitting.current) return;
+    Keyboard.dismiss();
+    setValidationAttempted(true);
+    setFeedback("");
+    setSubmitError("");
+    if (!product.trim() || description.trim().length < 10) {
+      const message = !product.trim()
+        ? "Enter the product name."
+        : "Describe what happened using at least 10 characters.";
+      setSubmitError(message);
+      if (Platform.OS !== "web")
+        Alert.alert("Report details required", message);
+      return;
+    }
+    submitting.current = true;
     setBusy(true);
     try {
       const location = user!.locationEnabled
         ? await bestEffortLocation()
         : undefined;
       const photoId = photo ? (await uploadPhoto(photo)).photoId : undefined;
-      await request("/api/reports", "POST", {
-        product,
-        code,
-        description,
+      const report = await request<{ id: string }>("/api/reports", "POST", {
+        product: product.trim(),
+        code: code.trim(),
+        description: description.trim(),
         photoId,
         location,
       });
@@ -159,10 +184,16 @@ export function Reports({ prefill }: { prefill?: Verification }) {
       setCode("");
       setDescription("");
       setPhoto(undefined);
-      setFeedback("Report submitted. You can follow its status below.");
+      setValidationAttempted(false);
+      const confirmation = `Report submitted for regulator review. Reference: ${report.id.slice(0, 8)}. You can follow its status below.`;
+      setFeedback(confirmation);
+      if (Platform.OS !== "web") Alert.alert("Report submitted", confirmation);
     } catch (e) {
-      setFeedback((e as Error).message);
+      setSubmitError((e as Error).message);
+      if (Platform.OS !== "web")
+        Alert.alert("Report not submitted", (e as Error).message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
@@ -179,18 +210,55 @@ export function Reports({ prefill }: { prefill?: Verification }) {
         what looked unusual.
       </Text>
       <View style={S.card}>
-        <Field label="Product name" value={product} onChangeText={setProduct} />
+        <Field
+          label="Product name (required)"
+          value={product}
+          onChangeText={setProduct}
+          maxLength={200}
+          style={
+            validationAttempted && !product.trim()
+              ? { borderColor: C.red }
+              : undefined
+          }
+        />
+        {validationAttempted && !product.trim() && (
+          <Text accessibilityRole="alert" style={[S.small, { color: C.red }]}>
+            Enter the product name.
+          </Text>
+        )}
         <Field
           label="Product code (optional)"
           value={code}
           onChangeText={setCode}
+          maxLength={150}
         />
         <Field
-          label="What happened?"
+          label="What happened? (required)"
           multiline
           value={description}
           onChangeText={setDescription}
+          maxLength={5000}
+          style={
+            validationAttempted && description.trim().length < 10
+              ? { borderColor: C.red }
+              : undefined
+          }
         />
+        <Text
+          style={[
+            S.small,
+            {
+              color:
+                validationAttempted && description.trim().length < 10
+                  ? C.red
+                  : C.muted,
+            },
+          ]}
+        >
+          {description.trim().length < 10
+            ? `At least 10 characters required (${description.trim().length} entered).`
+            : `${description.trim().length}/5000 characters`}
+        </Text>
         <View style={S.row}>
           <View style={{ flex: 1 }}>
             <Button secondary title="Take photo" onPress={() => attach(true)} />
@@ -214,6 +282,16 @@ export function Reports({ prefill }: { prefill?: Verification }) {
             </Pressable>
           </View>
         )}
+        {!!submitError && (
+          <Text accessibilityRole="alert" style={[S.text, { color: C.red }]}>
+            {submitError}
+          </Text>
+        )}
+        {!!feedback && (
+          <Text accessibilityRole="alert" style={[S.text, { color: C.green }]}>
+            {feedback}
+          </Text>
+        )}
         <Button
           title="Submit report"
           onPress={submit}
@@ -221,15 +299,11 @@ export function Reports({ prefill }: { prefill?: Verification }) {
           icon="flag-outline"
         />
         <Text style={S.small}>
-          Your report and photo are saved to the server. Location is included
-          only when you enable sharing in your profile.
+          Submitted reports go to regulators and administrators for review.
+          Photos are optional. Location is included only when you enable sharing
+          in your profile.
         </Text>
       </View>
-      {!!feedback && (
-        <Text accessibilityRole="alert" style={S.text}>
-          {feedback}
-        </Text>
-      )}
       <Text style={S.h2}>Your reports</Text>
       {state.reports
         .filter((r) => r.userId === user!.id)

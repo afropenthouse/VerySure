@@ -8,10 +8,12 @@ function Tabs({
   items,
   current,
   onChange,
+  disabled = false,
 }: {
   items: string[];
   current: string;
   onChange: (v: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
@@ -21,6 +23,7 @@ function Tabs({
           accessibilityRole="tab"
           accessibilityLabel={t}
           accessibilityState={{ selected: current === t }}
+          disabled={disabled}
           onPress={() => onChange(t)}
           style={[S.pill, { backgroundColor: current === t ? C.ink : C.sand }]}
         >
@@ -51,6 +54,94 @@ function useActions() {
     }
   }
   return { run, busy, feedback, setFeedback };
+}
+function ReportInbox() {
+  const { state, refresh } = useStore();
+  const { run, busy, feedback, setFeedback } = useActions();
+  const [refreshing, setRefreshing] = useState(false);
+  return (
+    <View style={{ gap: 16 }}>
+      <Button
+        secondary
+        title="Refresh reports"
+        busy={refreshing}
+        onPress={async () => {
+          setRefreshing(true);
+          try {
+            await refresh();
+            setFeedback("");
+          } catch (error) {
+            setFeedback((error as Error).message);
+          } finally {
+            setRefreshing(false);
+          }
+        }}
+      />
+      {!!feedback && (
+        <Text accessibilityRole="alert" style={S.text}>
+          {feedback}
+        </Text>
+      )}
+      {!state.reports.length && (
+        <Empty
+          icon="flag-outline"
+          title="No reports yet"
+          body="Submitted consumer and retailer reports appear here for review."
+        />
+      )}
+      {state.reports.map((report) => (
+        <View key={report.id} style={S.card}>
+          <View style={S.between}>
+            <Text style={[S.h3, { flex: 1 }]}>{report.product}</Text>
+            <Badge text={report.status} />
+          </View>
+          <Text selectable style={S.small}>
+            Reference {report.id.slice(0, 8)} · Reporter {report.userId}
+          </Text>
+          {!!report.code && (
+            <Text selectable style={S.small}>
+              Product code: {report.code}
+            </Text>
+          )}
+          <Text style={S.text}>{report.description}</Text>
+          {report.photo && (
+            <Image
+              source={{ uri: report.photo }}
+              style={{ height: 220, borderRadius: 12 }}
+              resizeMode="contain"
+            />
+          )}
+          <Text style={S.small}>{new Date(report.date).toLocaleString()}</Text>
+          {report.location && (
+            <Button
+              secondary
+              title="View report location"
+              onPress={() =>
+                Linking.openURL(
+                  `https://www.google.com/maps?q=${report.location!.latitude},${report.location!.longitude}`,
+                )
+              }
+            />
+          )}
+          <Text style={S.small}>Update investigation status</Text>
+          <Tabs
+            items={["open", "investigating", "resolved"]}
+            current={report.status}
+            disabled={busy}
+            onChange={(status) => {
+              if (status !== report.status)
+                void run(
+                  `/api/reports/${report.id}/status`,
+                  "PATCH",
+                  { status },
+                  "Report updated and reporter notified.",
+                );
+            }}
+          />
+        </View>
+      ))}
+    </View>
+  );
 }
 export function ManufacturerTools() {
   const { state, user } = useStore();
@@ -399,7 +490,13 @@ export function MonitorTools() {
       </Text>
       <Text style={S.h1}>Safer markets{"\n"}start here.</Text>
       <Tabs
-        items={["Applications", "Manufacturers", "Batch register", "Sightings"]}
+        items={[
+          "Applications",
+          "Manufacturers",
+          "Batch register",
+          "Sightings",
+          "Reports",
+        ]}
         current={tab}
         onChange={setTab}
       />
@@ -569,36 +666,9 @@ export function MonitorTools() {
               </View>
             );
           })}
-          <Text style={S.h2}>Consumer reports</Text>
-          {state.reports
-            .filter((r) => !gps || r.location)
-            .map((r) => (
-              <View key={r.id} style={S.card}>
-                <Badge text={r.status} />
-                <Text style={S.h3}>{r.product}</Text>
-                <Text style={S.text}>{r.description}</Text>
-                {r.photo && (
-                  <Image
-                    source={{ uri: r.photo }}
-                    style={{ height: 180, borderRadius: 12 }}
-                    resizeMode="contain"
-                  />
-                )}
-                {r.location && (
-                  <Button
-                    secondary
-                    title="View report location"
-                    onPress={() =>
-                      Linking.openURL(
-                        `https://www.google.com/maps?q=${r.location!.latitude},${r.location!.longitude}`,
-                      )
-                    }
-                  />
-                )}
-              </View>
-            ))}
         </>
       )}
+      {tab === "Reports" && <ReportInbox />}
     </View>
   );
 }
@@ -728,44 +798,7 @@ export function AdminTools() {
             body="Product scans appear here."
           />
         ))}
-      {tab === "Reports" &&
-        (state.reports.length ? (
-          state.reports.map((r) => (
-            <View key={r.id} style={S.card}>
-              <Text style={S.h3}>{r.product}</Text>
-              <Text style={S.small}>
-                {r.code} · Reporter {r.userId}
-              </Text>
-              <Text style={S.text}>{r.description}</Text>
-              {r.photo && (
-                <Image
-                  source={{ uri: r.photo }}
-                  style={{ height: 220, borderRadius: 12 }}
-                  resizeMode="contain"
-                />
-              )}
-              <Text style={S.small}>
-                GPS:{" "}
-                {r.location
-                  ? `${r.location.latitude}, ${r.location.longitude}`
-                  : "Not shared"}
-              </Text>
-              <Tabs
-                items={["open", "investigating", "resolved"]}
-                current={r.status}
-                onChange={(status) =>
-                  run(`/api/admin/reports/${r.id}`, "PATCH", { status })
-                }
-              />
-            </View>
-          ))
-        ) : (
-          <Empty
-            icon="flag-outline"
-            title="No reports yet"
-            body="Consumer reports appear here for review."
-          />
-        ))}
+      {tab === "Reports" && <ReportInbox />}
       {tab === "Wallet credits" && (
         <View style={S.card}>
           {field("recipient", "User’s 6-digit Verysure ID", {
